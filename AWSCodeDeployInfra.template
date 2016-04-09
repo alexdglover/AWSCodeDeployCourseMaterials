@@ -1,0 +1,399 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  "Description" : "AWS CodeDeploy infra",
+  "Parameters" : {
+    "VPCID": {
+      "Description" : "VPC ID",
+      "Type": "String",
+      "Default": "vpc-16438e72"
+    },
+
+    "myIP": {
+      "Description" : "Enter your IP address in CIDR notation, e.g. 100.150.200.225/32",
+      "Type": "String",
+      "Default": "50.186.16.59/32"
+    },
+
+    "InstanceProfile": {
+      "Description" : "Use the full ARN for SimpleCodeDeployInstanceProfile or AdvancedCodeDeployInstanceProfile",
+      "Type": "String",
+      "Default": "arn:aws:iam::663934185745:instance-profile/SimpleCodeDeployInstanceProfile"
+    },
+
+    "KeyName" : {
+      "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type" : "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription" : "The name of an existing EC2 KeyPair.",
+      "Default": "alexdglover"
+    },
+    "AZ"  : {
+      "Description" : "Comma delimited list of AvailabilityZones where the instances will be created",
+      "Type"        : "CommaDelimitedList",
+      "Default": "us-east-1a,us-east-1c,us-east-1d"
+    },
+
+    "PublicSubnets"  : {
+      "Description" : "Comma delimited list of public subnets",
+      "Type"        : "CommaDelimitedList",
+      "Default": "subnet-6fa38e36,subnet-4ba2f160,subnet-13b1ba64"
+    },
+
+    "InstanceType" : {
+      "Description" : "Provide InstanceType to be used",
+      "Type" : "String",
+      "ConstraintDescription" : "Must be a valid EC2 instance type, such as t2.medium",
+      "Default": "t2.medium"
+    },
+
+    "LinuxAMIID" : {
+      "Description" : "Linux AMI ID",
+      "Type" : "String",
+      "Default": "ami-e3106686"
+    },
+    "WindowsAMIID" : {
+      "Description" : "Windows AMI ID",
+      "Type" : "String",
+      "Default": "ami-f7482692"
+    }
+  },
+  "Resources" : {
+  "WebSecurityGroup": {
+    "Type": "AWS::EC2::SecurityGroup",
+    "Properties": {
+      "GroupDescription": "WebSecurityGroup",
+      "SecurityGroupEgress": [
+        {
+          "CidrIp": "0.0.0.0/0",
+          "FromPort": -1,
+          "IpProtocol": "-1",
+          "ToPort": -1
+        }
+      ],
+      "SecurityGroupIngress": [
+        {
+          "CidrIp": "0.0.0.0/0",
+          "FromPort": 80,
+          "IpProtocol": "6",
+          "ToPort": 80
+        },
+        {
+          "CidrIp": {
+            "Ref": "myIP"
+          },
+          "IpProtocol": "-1"
+        }
+      ],
+      "VpcId": {
+        "Ref": "VPCID"
+      }
+    }
+    },
+
+    "LinuxWebSNSTopic" : {
+      "Type" : "AWS::SNS::Topic"
+    },
+    "LinuxWebASG" : {
+      "Type" : "AWS::AutoScaling::AutoScalingGroup",
+      "Properties" : {
+        "AvailabilityZones" : { "Ref" : "AZ" },
+        "VPCZoneIdentifier" : { "Ref": "PublicSubnets" },
+        "MinSize" : "3",
+        "MaxSize" : "3",
+        "HealthCheckType" : "EC2",
+        "HealthCheckGracePeriod" : "600",
+        "NotificationConfiguration" : {
+          "TopicARN" : { "Ref" : "LinuxWebSNSTopic" },
+          "NotificationTypes" : [
+            "autoscaling:EC2_INSTANCE_LAUNCH",
+            "autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+            "autoscaling:EC2_INSTANCE_TERMINATE",
+            "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+          ]
+      },
+      "LoadBalancerNames" : [ { "Ref" : "LinuxWebELB" } ],
+      "DesiredCapacity" : "3",
+      "LaunchConfigurationName" : { "Ref" : "LinuxWebLaunchConfig" },
+      "Tags" : [
+        {"Key" : "Name", "Value" : "LinuxWebServer", "PropagateAtLaunch" : "true" }
+      ]
+     }
+    },
+    "LinuxWebLaunchConfig": {
+      "Properties": {
+        "AssociatePublicIpAddress" : "true",
+        "ImageId": { "Ref": "LinuxAMIID" },
+        "InstanceType": { "Ref": "InstanceType" },
+        "KeyName": { "Ref": "KeyName" },
+        "SecurityGroups": [ { "Ref": "WebSecurityGroup" } ],
+        "IamInstanceProfile": { "Ref": "InstanceProfile" },
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash\n\n",
+                "yum update -y\n\n",
+                "yum install httpd -y\n\n",
+                "yum install ruby\n\n",
+                "yum install aws-cli\n\n",
+                "cd ~\n\n",
+                "aws s3 cp s3://aws-codedeploy-us-east-1/latest/install . --region us-east-1\n\n",
+                "chmod +x ./install\n\n",
+                "./install auto\n\n",
+                "echo 'hello world' > /var/www/html/index.html\n\n",
+                "hostname >> /var/www/html/index.html\n\n",
+                "chkconfig httpd on\n\n",
+                "service httpd start\n\n"
+              ]
+            ]
+          }
+        }
+      },
+      "Type": "AWS::AutoScaling::LaunchConfiguration"
+    },
+
+    "LinuxWebAutoscaleUpPolicy" : {
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "LinuxWebASG" },
+        "Cooldown" : "300",
+        "ScalingAdjustment" : "1"
+      }
+    },
+    "LinuxWebAutoscaleDownPolicy" : {
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "LinuxWebASG" },
+        "Cooldown" : "300",
+        "ScalingAdjustment" : "-1"
+      }
+    },
+    "LinuxWebCloudWatchCPUAlarmHigh" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties" : {
+        "AlarmDescription" : "SNS Notification and scale up if CPU Util is Higher than 90% for 10 mins",
+        "MetricName" : "CPUUtilization",
+        "Namespace" : "AWS/EC2",
+        "Statistic" : "Average",
+        "Period" : "300",
+        "EvaluationPeriods" : "2",
+        "Threshold" : "90",
+        "AlarmActions" : [ { "Ref": "LinuxWebAutoscaleUpPolicy" }, { "Ref" : "LinuxWebSNSTopic" } ],
+        "Dimensions" : [
+          {
+            "Name" : "AutoScalingGroupName",
+            "Value" : { "Ref" : "LinuxWebASG" }
+          }
+        ],
+        "ComparisonOperator" : "GreaterThanThreshold"
+      }
+    },
+    "LinuxWebCloudWatchCPUAlarmLow" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties" : {
+        "AlarmDescription" : "SNS Notification and scale down if CPU Util is less than 70% for 10 mins",
+        "MetricName" : "CPUUtilization",
+        "Namespace" : "AWS/EC2",
+        "Statistic" : "Average",
+        "Period" : "300",
+        "EvaluationPeriods" : "2",
+        "Threshold" : "70",
+        "AlarmActions" : [ { "Ref": "LinuxWebAutoscaleDownPolicy" }, { "Ref" : "LinuxWebSNSTopic" } ],
+        "Dimensions" : [
+          {
+            "Name" : "AutoScalingGroupName",
+            "Value" : { "Ref" : "LinuxWebASG" }
+          }
+        ],
+        "ComparisonOperator" : "LessThanThreshold"
+      }
+    },
+
+    "LinuxWebELB" : {
+      "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties" : {
+        "CrossZone" : true,
+        "ConnectionDrainingPolicy": {
+          "Enabled" : "true",
+          "Timeout" : "60"
+        },
+        "HealthCheck" :  {
+          "Target" : "HTTP:80/index.html",
+          "HealthyThreshold" : "3",
+          "UnhealthyThreshold" : "3",
+          "Interval" : "15",
+          "Timeout" : "5"
+        },
+        "LoadBalancerName" :  "LinuxWebELB",
+        "Scheme" : "internet-facing",
+        "Listeners" : [
+        {
+          "LoadBalancerPort" : "80",
+          "InstancePort" : "80",
+          "InstanceProtocol" : "HTTP",
+          "Protocol" :  "HTTP"
+        }
+
+         ],
+        "SecurityGroups": [ { "Ref": "WebSecurityGroup" } ],
+        "Subnets" : { "Ref": "PublicSubnets" },
+        "Tags" : [{"Key" : "Network", "Value" : "public"}]
+      }
+    },
+    "WindowsWebSNSTopic" : {
+      "Type" : "AWS::SNS::Topic"
+    },
+    "WindowsWebASG" : {
+      "Type" : "AWS::AutoScaling::AutoScalingGroup",
+      "Properties" : {
+        "AvailabilityZones" : { "Ref" : "AZ" },
+        "VPCZoneIdentifier" : { "Ref": "PublicSubnets" },
+        "MinSize" : "3",
+        "MaxSize" : "3",
+        "HealthCheckType" : "EC2",
+        "HealthCheckGracePeriod" : "600",
+        "NotificationConfiguration" : {
+          "TopicARN" : { "Ref" : "WindowsWebSNSTopic" },
+          "NotificationTypes" : [
+            "autoscaling:EC2_INSTANCE_LAUNCH",
+            "autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+            "autoscaling:EC2_INSTANCE_TERMINATE",
+            "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+          ]
+      },
+      "LoadBalancerNames" : [ { "Ref" : "WindowsWebELB" } ],
+      "DesiredCapacity" : "3",
+      "LaunchConfigurationName" : { "Ref" : "WindowsWebLaunchConfig" },
+      "Tags" : [
+        {"Key" : "Name", "Value" : "WindowsWebServer", "PropagateAtLaunch" : "true" }
+      ]
+     }
+    },
+    "WindowsWebLaunchConfig": {
+      "Properties": {
+        "AssociatePublicIpAddress" : "true",
+        "ImageId": { "Ref": "WindowsAMIID" },
+        "InstanceType": { "Ref": "InstanceType" },
+        "KeyName": { "Ref": "KeyName" },
+        "SecurityGroups": [ { "Ref": "WebSecurityGroup" } ],
+        "IamInstanceProfile": { "Ref": "InstanceProfile" },
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "<script>\n",
+                  "echo hello world > c:\\inetpub\\wwwroot\\index.html\n",
+                  "hostname >> c:\\inetpub\\wwwroot\\index.html\n",
+                  "if not exist \"c:\temp\" mkdir c:\temp\n",
+                  "powershell.exe -Command Read-S3Object -BucketName aws-codedeploy-us-east-1/latest -Key codedeploy-agent.msi -File c:\\temp\\codedeploy-agent.msi\n",
+                  "c:\\temp\\codedeploy-agent.msi /quiet /l c:\\temp\\host-agent-install-log.txt\n",
+                  "powershell.exe -Command Get-Service -Name codedeployagent\n",
+                "</script>\n"
+              ]
+            ]
+          }
+        }
+      },
+      "Type": "AWS::AutoScaling::LaunchConfiguration"
+    },
+
+    "WindowsWebAutoscaleUpPolicy" : {
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "WindowsWebASG" },
+        "Cooldown" : "300",
+        "ScalingAdjustment" : "1"
+      }
+    },
+    "WindowsWebAutoscaleDownPolicy" : {
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "WindowsWebASG" },
+        "Cooldown" : "300",
+        "ScalingAdjustment" : "-1"
+      }
+    },
+    "WindowsWebCloudWatchCPUAlarmHigh" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties" : {
+        "AlarmDescription" : "SNS Notification and scale up if CPU Util is Higher than 90% for 10 mins",
+        "MetricName" : "CPUUtilization",
+        "Namespace" : "AWS/EC2",
+        "Statistic" : "Average",
+        "Period" : "300",
+        "EvaluationPeriods" : "2",
+        "Threshold" : "90",
+        "AlarmActions" : [ { "Ref": "WindowsWebAutoscaleUpPolicy" }, { "Ref" : "WindowsWebSNSTopic" } ],
+        "Dimensions" : [
+          {
+            "Name" : "AutoScalingGroupName",
+            "Value" : { "Ref" : "WindowsWebASG" }
+          }
+        ],
+        "ComparisonOperator" : "GreaterThanThreshold"
+      }
+    },
+    "WindowsWebCloudWatchCPUAlarmLow" : {
+      "Type" : "AWS::CloudWatch::Alarm",
+      "Properties" : {
+        "AlarmDescription" : "SNS Notification and scale down if CPU Util is less than 70% for 10 mins",
+        "MetricName" : "CPUUtilization",
+        "Namespace" : "AWS/EC2",
+        "Statistic" : "Average",
+        "Period" : "300",
+        "EvaluationPeriods" : "2",
+        "Threshold" : "70",
+        "AlarmActions" : [ { "Ref": "WindowsWebAutoscaleDownPolicy" }, { "Ref" : "WindowsWebSNSTopic" } ],
+        "Dimensions" : [
+          {
+            "Name" : "AutoScalingGroupName",
+            "Value" : { "Ref" : "WindowsWebASG" }
+          }
+        ],
+        "ComparisonOperator" : "LessThanThreshold"
+      }
+    },
+
+    "WindowsWebELB" : {
+      "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties" : {
+        "CrossZone" : true,
+        "ConnectionDrainingPolicy": {
+          "Enabled" : "true",
+          "Timeout" : "60"
+        },
+        "HealthCheck" :  {
+          "Target" : "HTTP:80/index.html",
+          "HealthyThreshold" : "3",
+          "UnhealthyThreshold" : "3",
+          "Interval" : "15",
+          "Timeout" : "5"
+        },
+        "LoadBalancerName" :  "WindowsWebELB",
+        "Scheme" : "internet-facing",
+        "Listeners" : [
+        {
+          "LoadBalancerPort" : "80",
+          "InstancePort" : "80",
+          "InstanceProtocol" : "HTTP",
+          "Protocol" :  "HTTP"
+        }
+
+         ],
+        "SecurityGroups": [ { "Ref": "WebSecurityGroup" } ],
+        "Subnets" : { "Ref": "PublicSubnets" },
+        "Tags" : [{"Key" : "Network", "Value" : "public"}]
+      }
+    }
+
+  },
+  "Outputs" : {
+    "LinuxWebFQDN" : { "Value": { "Fn::GetAtt" : [ "LinuxWebELB", "DNSName" ]} },
+    "WindowsWebFQDN" : { "Value": { "Fn::GetAtt" : [ "WindowsWebELB", "DNSName" ]} }
+  }
+}
