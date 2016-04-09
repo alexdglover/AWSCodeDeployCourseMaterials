@@ -1,0 +1,47 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CodeDeploy infra",
+  "Parameters": {
+    "VPCID": {
+      "Description": "VPC ID",
+      "Type": "String"
+    },
+    "myIP": {
+      "Description": "Enter your IP address in CIDR notation, e.g. 100.150.200.225/32",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "WebSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "WebSecurityGroup",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "FromPort": -1,
+            "IpProtocol": "-1",
+            "ToPort": -1
+          }
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "FromPort": 80,
+            "IpProtocol": "6",
+            "ToPort": 80
+          },
+          {
+            "CidrIp": {
+              "Ref": "myIP"
+            },
+            "IpProtocol": "-1"
+          }
+        ],
+        "VpcId": {
+          "Ref": "VPCID"
+        }
+      }
+    }
+  }
+}
