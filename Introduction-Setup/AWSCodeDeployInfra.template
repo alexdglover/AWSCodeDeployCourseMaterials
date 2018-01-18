@@ -3,39 +3,33 @@
   "Description" : "AWS CodeDeploy infra",
   "Parameters" : {
     "VPCID": {
-      "Description" : "VPC ID",
-      "Type": "String",
-      "Default": "vpc-16438e72"
+      "Description" : "VPC ID, e.g. 'vpc-16438e72'",
+      "Type": "String"
     },
 
     "myIP": {
       "Description" : "Enter your IP address in CIDR notation, e.g. 100.150.200.225/32",
-      "Type": "String",
-      "Default": "50.186.16.59/32"
+      "Type": "String"
     },
 
     "InstanceProfile": {
       "Description" : "Use the full ARN for SimpleCodeDeployInstanceProfile or AdvancedCodeDeployInstanceProfile",
-      "Type": "String",
-      "Default": "arn:aws:iam::663934185745:instance-profile/SimpleCodeDeployInstanceProfile"
+      "Type": "String"
     },
 
     "KeyName" : {
       "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
       "Type" : "AWS::EC2::KeyPair::KeyName",
-      "ConstraintDescription" : "The name of an existing EC2 KeyPair.",
-      "Default": "alexdglover"
+      "ConstraintDescription" : "The name of an existing EC2 KeyPair."
     },
     "AZ"  : {
       "Description" : "Comma delimited list of AvailabilityZones where the instances will be created",
-      "Type"        : "CommaDelimitedList",
-      "Default": "us-east-1a,us-east-1c,us-east-1d"
+      "Type"        : "CommaDelimitedList"
     },
 
     "PublicSubnets"  : {
       "Description" : "Comma delimited list of public subnets",
-      "Type"        : "CommaDelimitedList",
-      "Default": "subnet-6fa38e36,subnet-4ba2f160,subnet-13b1ba64"
+      "Type"        : "CommaDelimitedList"
     },
 
     "InstanceType" : {
@@ -47,13 +41,11 @@
 
     "LinuxAMIID" : {
       "Description" : "Linux AMI ID",
-      "Type" : "String",
-      "Default": "ami-e3106686"
+      "Type" : "String"
     },
     "WindowsAMIID" : {
       "Description" : "Windows AMI ID",
-      "Type" : "String",
-      "Default": "ami-f7482692"
+      "Type" : "String"
     }
   },
   "Resources" : {
